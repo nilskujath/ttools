@@ -9,14 +9,17 @@ from ttools.ontology.event_messages import (
     LimitOrderEventMessage,
     StopOrderEventMessage,
     IncomingBarEventMessage,
+    ProcessedBarEventMessage,
     TradeEventMessage,
 )
 from ttools.ontology.enum_defs import DecisionType, TradeDirection, OrderType
 from ttools.ontology.global_queues import (
     incoming_bar_event_message_queue,
+    process_bar_event_message_queue,
     trade_event_message_queue,
 )
 from ttools.logging_config import logger
+from ttools.indicators import SimpleMovingAverage
 
 
 class StrategiesABC(abc.ABC):
@@ -138,18 +141,20 @@ class StrategiesABC(abc.ABC):
     def on_bar(self, new_bar_event_message: IncomingBarEventMessage):
         pass
 
-    def _run_strategy(self):
+    def _run_strategy(self) -> None:
         while not (GLOBAL_STOP_EVENT.is_set() or self._instance_stop_event.is_set()):
             try:
-                new_bar_event_message = incoming_bar_event_message_queue.get()
-                logger.info(
-                    f"Received new bar event message: {new_bar_event_message.ohlcv}"
-                )
-
+                new_bar_event_message = (
+                    incoming_bar_event_message_queue.get()
+                )  # blocking call
+                if not isinstance(new_bar_event_message, IncomingBarEventMessage):
+                    logger.error("Received non-bar event message from the queue.")
+                    continue
+                logger.debug(f"Received {new_bar_event_message}")
                 self._fill_orders(new_bar_event_message)
                 self.on_bar(new_bar_event_message)
             except Exception as e:
-                logger.error(f"Error while receiving incoming bar event message: {e}")
+                logger.error(f"Error processing bar event message: {e}")
 
     def run_strategy(self):
         self.strategy_thread = threading.Thread(
@@ -163,9 +168,36 @@ class Strategy1(StrategiesABC):
 
     def __init__(self):
         super().__init__()
+        # Step 1: Define indicators that are used in strategy:
+        self.sma_fast = SimpleMovingAverage(10, "close")
+        self.sma_slow = SimpleMovingAverage(100, "close")
 
     def on_bar(self, new_bar_event_message: IncomingBarEventMessage):
-        if new_bar_event_message.ohlcv.open < new_bar_event_message.ohlcv.close:
+        # Step 2: At each new bar, update indicators
+        self.sma_fast.update(new_bar_event_message.ohlcv.close)
+        self.sma_slow.update(new_bar_event_message.ohlcv.close)
+
+        indicator_values: dict[str, float] = {
+            f"{self.sma_fast.name}": self.sma_fast[0],
+            f"{self.sma_slow.name}": self.sma_slow[0],
+        }
+
+        processed_bar_event_message: ProcessedBarEventMessage = (
+            ProcessedBarEventMessage(
+                ts_event=new_bar_event_message.ts_event,
+                rtype=new_bar_event_message.rtype,
+                symbol=new_bar_event_message.symbol,
+                ohlcv=new_bar_event_message.ohlcv,
+                indicator_values=indicator_values,
+                # bar_performance_metrics=
+            )
+        )
+
+        process_bar_event_message_queue.put(processed_bar_event_message)
+        logger.info(f"Enqueued {processed_bar_event_message}")
+
+        # Step 3: Define the trading logic
+        if self.sma_slow[0] < self.sma_fast[0] < new_bar_event_message.ohlcv.high:
             self.submit_order(
                 MarketOrderEventMessage(
                     ts_event=new_bar_event_message.ts_event,
@@ -175,3 +207,8 @@ class Strategy1(StrategiesABC):
                     decision_type=DecisionType.SHORT_ENTRY,
                 )
             )
+
+    # To work on next time:
+    # Fix up the logging everywhere
+    # Make the trades queue
+    # Make indicators fixed so that plotting can be done automatically. and update is also automatic.

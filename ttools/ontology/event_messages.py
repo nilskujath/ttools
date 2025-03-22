@@ -19,6 +19,16 @@ class IncomingBarEventMessage:
     symbol: str
     ohlcv: OHLCV
 
+    def __str__(self) -> str:
+        ohlcv_str = (
+            f"open={self.ohlcv.open}, high={self.ohlcv.high}, "
+            f"low={self.ohlcv.low}, close={self.ohlcv.close}, volume={self.ohlcv.volume}"
+        )
+        return (
+            f"IncomingBarEventMessage({self.ts_event}, {self.symbol}, {self.rtype}, "
+            f"ohlcv=({ohlcv_str}))"
+        )
+
 
 @dataclasses.dataclass(frozen=True)
 class ProcessedBarEventMessage:
@@ -26,8 +36,21 @@ class ProcessedBarEventMessage:
     rtype: Rtype
     symbol: str
     ohlcv: OHLCV
-    indicators: dict
-    bar_performance_metrics: dict
+    indicator_values: dict
+    # bar_performance_metrics: dict
+
+    def __str__(self) -> str:
+        ohlcv_str = (
+            f"open={self.ohlcv.open}, high={self.ohlcv.high}, "
+            f"low={self.ohlcv.low}, close={self.ohlcv.close}, volume={self.ohlcv.volume}"
+        )
+        indicators_str = ", ".join(
+            f"{k}: {v}" for k, v in self.indicator_values.items()
+        )
+        return (
+            f"ProcessedBarEventMessage({self.ts_event}, {self.symbol}, "
+            f"ohlcv=({ohlcv_str}), indicators={indicators_str})"
+        )
 
 
 @dataclasses.dataclass(frozen=True)

@@ -81,8 +81,8 @@ class CSVDatafeed(DatafeedsABC):
                     break
                 incoming_bar_event_message_queue.put(incoming_bar_event_message)
                 logger.debug(
-                    f"Enqueued bar event message: "
-                    f"{incoming_bar_event_message.ohlcv} | Queue size: "
+                    f"Enqueued "
+                    f"{incoming_bar_event_message} | Queue size: "
                     f"{incoming_bar_event_message_queue.qsize()}"
                 )
             except Exception as e:
